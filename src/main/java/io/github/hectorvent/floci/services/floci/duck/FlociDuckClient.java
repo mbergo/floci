@@ -140,6 +140,11 @@ public class FlociDuckClient {
      */
     private String resolveFlociEndpoint() {
         int port = URI.create(config.baseUrl()).getPort();
+        if (port < 0) {
+            // base-url without an explicit port (e.g. public https URLs) — the duck
+            // container always reaches the emulator on its internal listen port.
+            port = config.port();
+        }
         String hostname = embeddedDnsServer.getServerIp().isPresent()
                 ? config.hostname().orElse(EmbeddedDnsServer.DEFAULT_SUFFIX)
                 : dockerHostResolver.resolve();
