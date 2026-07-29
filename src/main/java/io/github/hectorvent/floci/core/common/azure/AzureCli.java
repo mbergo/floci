@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Thin subprocess runner for the Azure CLI ({@code az}). Used by Azure-backed service
@@ -31,6 +32,7 @@ public class AzureCli {
     private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(2);
 
     private final EmulatorConfig config;
+    private final AtomicBoolean resourceGroupEnsured = new AtomicBoolean(false);
 
     @Inject
     public AzureCli(EmulatorConfig config) {
@@ -89,6 +91,29 @@ public class AzureCli {
             sink.append(new String(stream.readAllBytes(), StandardCharsets.UTF_8));
         } catch (IOException e) {
             // Process died or stream closed; whatever was read is enough for diagnostics.
+        }
+    }
+
+    /**
+     * Creates the shared {@code floci.azure.resource-group} on first use when
+     * {@code floci.azure.auto-create-resource-group} is enabled. {@code az group create}
+     * is idempotent, so pre-existing groups are untouched. Shared by all Azure-backed
+     * providers; the group is only ensured once per emulator run (retried on failure).
+     */
+    public void ensureResourceGroup() {
+        if (!config.azure().autoCreateResourceGroup() || !resourceGroupEnsured.compareAndSet(false, true)) {
+            return;
+        }
+        Result result = run(List.of(
+                "group", "create",
+                "--name", config.azure().resourceGroup(),
+                "--location", config.azure().location(),
+                "--tags", "floci=true",
+                "--only-show-errors"));
+        if (!result.succeeded()) {
+            resourceGroupEnsured.set(false);
+            throw new IllegalStateException("az group create failed for resource group "
+                    + config.azure().resourceGroup() + ": " + result.stderr().trim());
         }
     }
 }

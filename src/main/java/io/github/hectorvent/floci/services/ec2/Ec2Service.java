@@ -86,7 +86,7 @@ public class Ec2Service implements ContainerTeardown {
 
     private final String accountId;
     private final EmulatorConfig config;
-    private final Ec2ContainerManager containerManager;
+    private final Ec2InstanceProvider containerManager;
     private final Ec2PortForwardManager portForwardManager;
     private final AmiImageResolver amiImageResolver;
     private final Ec2ImageCatalog imageCatalog;
@@ -119,11 +119,22 @@ public class Ec2Service implements ContainerTeardown {
     private final Map<String, AtomicInteger> subnetIpCounters = new ConcurrentHashMap<>();
 
     @Inject
-    public Ec2Service(EmulatorConfig config, Ec2ContainerManager containerManager,
+    public Ec2Service(EmulatorConfig config, Ec2ContainerManager dockerProvider,
+                      AzureVmProvider azureVmProvider,
                       Ec2PortForwardManager portForwardManager,
                       AmiImageResolver amiImageResolver, Ec2ImageCatalog imageCatalog,
                       Ec2InstanceTypeCatalog instanceTypeCatalog, StorageFactory storageFactory) {
-        this(config, containerManager, portForwardManager, amiImageResolver, imageCatalog, instanceTypeCatalog,
+        this(config, selectProvider(config, dockerProvider, azureVmProvider), portForwardManager,
+                amiImageResolver, imageCatalog, instanceTypeCatalog, storageFactory);
+    }
+
+    // Package-private for tests: inject the resolved backing-compute provider directly.
+    Ec2Service(EmulatorConfig config, Ec2InstanceProvider containerManager,
+               Ec2PortForwardManager portForwardManager,
+               AmiImageResolver amiImageResolver, Ec2ImageCatalog imageCatalog,
+               Ec2InstanceTypeCatalog instanceTypeCatalog, StorageFactory storageFactory) {
+        this(config, containerManager, portForwardManager,
+                amiImageResolver, imageCatalog, instanceTypeCatalog,
                 storageFactory.create("ec2", "ec2-vpcs.json", new TypeReference<Map<String, Vpc>>() {}),
                 storageFactory.create("ec2", "ec2-subnets.json", new TypeReference<Map<String, Subnet>>() {}),
                 storageFactory.create("ec2", "ec2-security-groups.json", new TypeReference<Map<String, SecurityGroup>>() {}),
@@ -145,7 +156,7 @@ public class Ec2Service implements ContainerTeardown {
     }
 
     // Package-private for hermetic tests (pass in-memory or temp-dir-backed StorageBackends directly).
-    Ec2Service(EmulatorConfig config, Ec2ContainerManager containerManager,
+    Ec2Service(EmulatorConfig config, Ec2InstanceProvider containerManager,
                Ec2PortForwardManager portForwardManager,
                AmiImageResolver amiImageResolver, Ec2ImageCatalog imageCatalog,
                Ec2InstanceTypeCatalog instanceTypeCatalog,
@@ -192,6 +203,22 @@ public class Ec2Service implements ContainerTeardown {
         this.spotInstanceRequests = spotInstanceRequests;
         this.networkAcls = networkAcls;
         this.tags = tags;
+    }
+
+    /**
+     * Resolves the backing-compute provider from {@code floci.services.ec2.provider}:
+     * {@code docker} (default) runs instances as local Docker containers, {@code azure-vm}
+     * provisions real Azure virtual machines via the az CLI.
+     */
+    static Ec2InstanceProvider selectProvider(EmulatorConfig config, Ec2ContainerManager dockerProvider,
+                                              AzureVmProvider azureVmProvider) {
+        String provider = config.services().ec2().provider().toLowerCase();
+        return switch (provider) {
+            case "docker" -> dockerProvider;
+            case "azure-vm" -> azureVmProvider;
+            default -> throw new IllegalArgumentException(
+                    "Unknown EC2 provider '" + provider + "' — supported values: docker, azure-vm");
+        };
     }
 
     @PostConstruct
@@ -776,11 +803,10 @@ public class Ec2Service implements ContainerTeardown {
             if (!"running".equals(state)) {
                 continue;
             }
-            portForwardManager.reconcile(inst, desiredPublishedPorts(region, inst));
+            containerManager.reconcilePublishedPorts(inst, desiredPublishedPorts(region, inst));
             instances.put(key(region, inst.getInstanceId()), inst);
         }
     }
-
     private void validateArchitectureCompatibility(String imageId, String instanceType) {
         Optional<String> imageArchitecture = imageCatalog.findByIdOrAlias(imageId)
                 .map(image -> image.architecture)
@@ -1073,7 +1099,7 @@ public class Ec2Service implements ContainerTeardown {
         if (config.services().ec2().publishSecurityGroupPorts() && !config.services().ec2().mock()
                 && inst.getDockerContainerId() != null
                 && inst.getState() != null && "running".equals(inst.getState().getName())) {
-            portForwardManager.reconcile(inst, desiredPublishedPorts(region, inst));
+            containerManager.reconcilePublishedPorts(inst, desiredPublishedPorts(region, inst));
         }
     }
 
@@ -1634,7 +1660,7 @@ public class Ec2Service implements ContainerTeardown {
             return state == null
                     || (!"shutting-down".equals(state) && !"terminated".equals(state) && !"stopping".equals(state));
         }
-        return containerManager.isContainerRunning(instance.getDockerContainerId());
+        return containerManager.isContainerRunning(instance);
     }
 
     public KeyPair findKeyPair(String region, String keyName) {

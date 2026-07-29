@@ -34,6 +34,30 @@ import static org.mockito.Mockito.when;
 class Ec2ServiceTest {
 
     @Test
+    void selectProviderResolvesConfiguredBackingProvider() {
+        Ec2ContainerManager docker = mock(Ec2ContainerManager.class);
+        AzureVmProvider azureVm = mock(AzureVmProvider.class);
+
+        assertEquals(docker, Ec2Service.selectProvider(configWithProvider("docker"), docker, azureVm));
+        assertEquals(azureVm, Ec2Service.selectProvider(configWithProvider("azure-vm"), docker, azureVm));
+        assertEquals(azureVm, Ec2Service.selectProvider(configWithProvider("Azure-VM"), docker, azureVm));
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> Ec2Service.selectProvider(configWithProvider("kubernetes"), docker, azureVm));
+        assertTrue(error.getMessage().contains("kubernetes"));
+    }
+
+    private static EmulatorConfig configWithProvider(String provider) {
+        EmulatorConfig config = mock(EmulatorConfig.class);
+        EmulatorConfig.ServicesConfig services = mock(EmulatorConfig.ServicesConfig.class);
+        EmulatorConfig.Ec2ServiceConfig ec2 = mock(EmulatorConfig.Ec2ServiceConfig.class);
+        when(config.services()).thenReturn(services);
+        when(services.ec2()).thenReturn(ec2);
+        when(ec2.provider()).thenReturn(provider);
+        return config;
+    }
+
+    @Test
     void mockModeTreatsExistingNonTerminatedInstanceAsRunningContainer() {
         Ec2ContainerManager containerManager = mock(Ec2ContainerManager.class);
         Ec2Service service = new Ec2Service(mockConfig(true), containerManager,

@@ -338,6 +338,18 @@ floci:
       keep-running-on-shutdown: false
     ec2:
       enabled: true
+      # Backing compute for real-mode instances: "docker" (local containers, default) or
+      # "azure-vm" (real Azure virtual machines via the az CLI — see the floci.azure block).
+      provider: docker
+      # Settings for the azure-vm provider.
+      azure-vm:
+        # Azure image for every instance (az alias or full URN); AMI ids are not translated.
+        image: Ubuntu2204
+        # Admin user created on the VM (key-pair public keys are injected for it).
+        admin-username: ec2-user
+        # Force one VM size for all instances. Unset: common EC2 types (t2/t3/m5/c5/r5...)
+        # map to comparable sizes, others fall back to Standard_B2s.
+        # size: Standard_B2s
       imds-port: 9169
       ssh-port-range-start: 2200
       ssh-port-range-end: 2299

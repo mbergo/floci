@@ -1421,6 +1421,17 @@ public interface EmulatorConfig {
         @WithDefault("true")
         boolean enabled();
 
+        /**
+         * Backing-compute provider for real-mode instances: {@code docker} (default) runs
+         * instances as local Docker containers; {@code azure-vm} provisions real Azure
+         * virtual machines through the az CLI (see {@link AzureConfig}).
+         */
+        @WithDefault("docker")
+        String provider();
+
+        /** Azure VM settings, used when {@code floci.services.ec2.provider=azure-vm}. */
+        AzureVmConfig azureVm();
+
         /** Port on the Floci host for the IMDS HTTP server (169.254.169.254 equivalent). */
         @WithDefault("9169")
         int imdsPort();
@@ -1464,6 +1475,27 @@ public interface EmulatorConfig {
         /** When true, instances go straight to RUNNING without launching Docker containers. */
         @WithDefault("false")
         boolean mock();
+    }
+
+    /** Azure VM settings for the EC2 {@code azure-vm} provider. */
+    interface AzureVmConfig {
+        /**
+         * Azure image for every instance (az alias like {@code Ubuntu2204} or a full URN).
+         * AMI ids are not translated — all instances boot this image.
+         */
+        @WithDefault("Ubuntu2204")
+        String image();
+
+        /**
+         * Azure VM size forced for all instances. When unset, common EC2 instance types
+         * (t2/t3/m5/m6i/c5/c6i/r5) map to comparable sizes, falling back to
+         * {@code Standard_B2s}.
+         */
+        Optional<String> size();
+
+        /** Admin user created on the VM; SSH key-pair public keys are injected for it. */
+        @WithDefault("ec2-user")
+        String adminUsername();
     }
 
     interface AppConfigServiceConfig {

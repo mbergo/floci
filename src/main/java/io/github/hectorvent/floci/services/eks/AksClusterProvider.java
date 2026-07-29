@@ -19,7 +19,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * {@link EksClusterProvider} that backs EKS clusters with real Azure AKS clusters,
@@ -46,7 +45,6 @@ public class AksClusterProvider implements EksClusterProvider {
 
     private final AzureCli az;
     private final EmulatorConfig config;
-    private final AtomicBoolean resourceGroupEnsured = new AtomicBoolean(false);
 
     @Inject
     public AksClusterProvider(AzureCli az, EmulatorConfig config) {
@@ -56,7 +54,7 @@ public class AksClusterProvider implements EksClusterProvider {
 
     @Override
     public void startCluster(Cluster cluster) {
-        ensureResourceGroup();
+        az.ensureResourceGroup();
 
         String aksName = aksName(cluster.getName());
         var aks = config.services().eks().aks();
@@ -156,28 +154,6 @@ public class AksClusterProvider implements EksClusterProvider {
             return;
         }
         LOG.infov("Deleting AKS cluster for EKS cluster {0}", cluster.getName());
-    }
-
-    /**
-     * Creates the shared resource group on first use when
-     * {@code floci.azure.auto-create-resource-group} is enabled. {@code az group create}
-     * is idempotent, so pre-existing groups are untouched.
-     */
-    private void ensureResourceGroup() {
-        if (!config.azure().autoCreateResourceGroup() || !resourceGroupEnsured.compareAndSet(false, true)) {
-            return;
-        }
-        AzureCli.Result result = az.run(List.of(
-                "group", "create",
-                "--name", config.azure().resourceGroup(),
-                "--location", config.azure().location(),
-                "--tags", "floci=true",
-                "--only-show-errors"));
-        if (!result.succeeded()) {
-            resourceGroupEnsured.set(false);
-            throw new IllegalStateException("az group create failed for resource group "
-                    + config.azure().resourceGroup() + ": " + result.stderr().trim());
-        }
     }
 
     /**

@@ -420,6 +420,10 @@ shells out to the `az` CLI and reuses your existing `az login` session.
 | `FLOCI_SERVICES_EC2_IMDS_PORT` | `9169` | Port for the EC2 Instance Metadata Service (IMDS) endpoint |
 | `FLOCI_SERVICES_EC2_SSH_PORT_RANGE_START` | `2200` | First port in the SSH port range for EC2 instances |
 | `FLOCI_SERVICES_EC2_SSH_PORT_RANGE_END` | `2299` | Last port in the SSH port range |
+| `FLOCI_SERVICES_EC2_PROVIDER` | `docker` | Backing compute: `docker` (local containers) or `azure-vm` (real Azure VMs via the az CLI) |
+| `FLOCI_SERVICES_EC2_AZURE_VM_IMAGE` | `Ubuntu2204` | Azure image alias or URN booted for every instance (`provider: azure-vm`) |
+| `FLOCI_SERVICES_EC2_AZURE_VM_SIZE` | *(unset)* | Fixed Azure VM size; when unset, derived from the EC2 instance type (`provider: azure-vm`) |
+| `FLOCI_SERVICES_EC2_AZURE_VM_ADMIN_USERNAME` | `ec2-user` | Admin/SSH user created on each VM (`provider: azure-vm`) |
 
 ### Athena
 

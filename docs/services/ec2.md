@@ -138,6 +138,56 @@ curl -s -H "x-aws-ec2-metadata-token: $TOKEN" \
 
 IAM credentials are served when the instance has an `IamInstanceProfile.Arn` set at launch. The container can then call other Floci services with full SigV4 validation using the standard AWS SDK credential chain.
 
+## Azure VM provider (`provider: azure-vm`)
+
+Instead of local Docker containers, real mode can back each EC2 instance with a **real
+Azure virtual machine**, provisioned through the `az` CLI. The AWS wire protocol is
+unchanged — `run-instances` starts an async `az vm create`, the instance stays `pending`
+until the VM is up, and `describe-instances` then reports the VM's real public/private IP
+addresses and a resolvable public DNS name.
+
+```yaml
+floci:
+  azure:
+    resource-group: floci        # created automatically on first use
+    location: eastus
+    # subscription: my-sub       # az CLI default subscription when unset
+  services:
+    ec2:
+      provider: azure-vm
+      azure-vm:
+        image: Ubuntu2204        # az image alias or URN
+        admin-username: ec2-user
+        # size: Standard_B2s     # overrides the instance-type mapping below
+```
+
+Requirements and behavior:
+
+- The `az` CLI must be installed and logged in (`az login`); Floci reuses that session
+  and never handles Azure credentials itself (`FLOCI_AZURE_CLI_PATH` to point at the binary).
+- VM names are derived deterministically from the instance ID (`floci-<instance-id>`),
+  and every resource is tagged `floci=true` plus `floci-ec2-instance=<id>`.
+- Common EC2 instance types map to Azure VM sizes (`t3.micro` → `Standard_B1s`,
+  `m5.large` → `Standard_D2s_v5`, `c5.xlarge` → `Standard_F4s_v2`, ...); unmapped types
+  fall back to `Standard_B2s`. Set `azure-vm.size` to force one size for all instances.
+- **AMI IDs are not translated.** Every instance boots the configured `azure-vm.image`;
+  the AMI still shapes the AWS-side response (`describe-instances`, `describe-images`).
+- SSH key pairs (`--key-name`) are injected via `--ssh-key-values`; without one, Azure
+  generates keys (`az vm create --generate-ssh-keys`). Connect with
+  `ssh <admin-username>@<public-ip>` on port 22 — no local SSH port mapping is involved.
+- UserData is passed as cloud-init custom data, matching EC2's cloud-init semantics.
+- Security-group TCP ingress rules are opened on the VM's network security group
+  (one consolidated `floci-app-ports` NSG rule) instead of socat sidecar forwarding.
+- `stop-instances` deallocates the VM (`az vm deallocate` — compute billing stops, like
+  EC2's stopped state), `start-instances` boots it again and refreshes the addresses, and
+  `terminate-instances` deletes the VM with its OS disk, NIC, NSG, and public IP.
+
+!!! warning "Instances see Azure IMDS, not AWS IMDS"
+    Workloads on the VM reach Azure's instance metadata service at `169.254.169.254`,
+    not Floci's EC2 IMDS — IAM instance-profile credentials are not injected into
+    Azure-backed instances. Point in-VM AWS SDK clients at Floci's endpoint with static
+    credentials instead.
+
 ## Default Resources
 
 Floci seeds the following resources on first use in each region so Terraform, the AWS CLI, and SDK clients work out of the box without any setup:
@@ -354,6 +404,10 @@ Launch templates store versioned launch data. New template versions can be creat
 | `FLOCI_SERVICES_EC2_MAX_PUBLISHED_PORTS_PER_INSTANCE` | `20` | Max published ports per instance; also the widest single-rule span published |
 | `FLOCI_SERVICES_EC2_SOCAT_IMAGE` | `alpine/socat` | Image used for the port-forwarding sidecar |
 | `FLOCI_SERVICES_EC2_MOCK` | `false` | Skip Docker; instances jump directly to final state (useful for tests) |
+| `FLOCI_SERVICES_EC2_PROVIDER` | `docker` | Backing compute: `docker` (local containers) or `azure-vm` (real Azure VMs via the az CLI) |
+| `FLOCI_SERVICES_EC2_AZURE_VM_IMAGE` | `Ubuntu2204` | Azure image alias or URN booted for every instance (`provider: azure-vm`) |
+| `FLOCI_SERVICES_EC2_AZURE_VM_SIZE` | *(unset)* | Fixed Azure VM size; when unset, derived from the EC2 instance type (`provider: azure-vm`) |
+| `FLOCI_SERVICES_EC2_AZURE_VM_ADMIN_USERNAME` | `ec2-user` | Admin/SSH user created on each VM (`provider: azure-vm`) |
 
 ## Requirements
 

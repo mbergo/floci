@@ -43,12 +43,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Manages Docker container lifecycle for EC2 instances.
+ * Manages Docker container lifecycle for EC2 instances — the default
+ * {@link Ec2InstanceProvider} ({@code floci.services.ec2.provider=docker}).
  * Handles launch, stop, start, terminate, and reboot operations.
  * SSH key injection and UserData execution are performed asynchronously after launch.
  */
 @ApplicationScoped
-public class Ec2ContainerManager {
+public class Ec2ContainerManager implements Ec2InstanceProvider {
 
     private static final Logger LOG = Logger.getLogger(Ec2ContainerManager.class);
     private static final String USER_DATA_SCRIPT_PATH = "/tmp/user-data.sh";
@@ -118,6 +119,7 @@ public class Ec2ContainerManager {
      * @param appPorts TCP ports opened by the instance's security groups to publish on the host
      *                 via socat sidecars once the container is running (empty for none)
      */
+    @Override
     public void launch(Instance instance, ResolvedAmiImage image, String publicKey, String region, Set<Integer> appPorts) {
         instance.setState(InstanceState.pending());
 
@@ -245,6 +247,7 @@ public class Ec2ContainerManager {
      * grace window. Unlike {@link #stop}, runs on the caller's thread (the async executor
      * would be abandoned mid-flight during shutdown) and leaves state handling to the caller.
      */
+    @Override
     public void stopForShutdown(Instance instance) {
         String containerId = instance.getDockerContainerId();
         if (containerId == null) {
@@ -264,6 +267,7 @@ public class Ec2ContainerManager {
      * Gracefully stops a running container (30 second timeout then SIGKILL).
      * Updates instance state through stopping → stopped.
      */
+    @Override
     public void stop(Instance instance) {
         String containerId = instance.getDockerContainerId();
         if (containerId == null) {
@@ -290,6 +294,7 @@ public class Ec2ContainerManager {
      * Starts a previously stopped container.
      * Updates instance state through pending → running.
      */
+    @Override
     public void start(Instance instance) {
         String containerId = instance.getDockerContainerId();
         if (containerId == null) {
@@ -327,7 +332,14 @@ public class Ec2ContainerManager {
         return containerId != null && !containerId.isBlank() && lifecycleManager.isContainerRunning(containerId);
     }
 
-    boolean restoreMetadataRegistration(Instance instance) {
+    /** Publishes/unpublishes security-group app ports via socat sidecars on the host. */
+    @Override
+    public void reconcilePublishedPorts(Instance instance, Set<Integer> desiredPorts) {
+        portForwardManager.reconcile(instance, desiredPorts);
+    }
+
+    @Override
+    public boolean restoreMetadataRegistration(Instance instance) {
         if (instance == null || instance.getDockerContainerId() == null) {
             return false;
         }
@@ -377,6 +389,7 @@ public class Ec2ContainerManager {
      * Updates state through shutting-down → terminated.
      * Sets terminatedAt for TTL pruning.
      */
+    @Override
     public void terminate(Instance instance) {
         String containerId = instance.getDockerContainerId();
         String containerIp = instance.getContainerBridgeIp();
@@ -411,6 +424,7 @@ public class Ec2ContainerManager {
     /**
      * Reboots an instance via docker restart.
      */
+    @Override
     public void reboot(Instance instance) {
         String containerId = instance.getDockerContainerId();
         if (containerId == null) {
@@ -426,6 +440,7 @@ public class Ec2ContainerManager {
         });
     }
 
+    @Override
     public boolean isContainerRunning(Instance instance) {
         String containerId = instance.getDockerContainerId();
         return containerId != null && lifecycleManager.isContainerRunning(containerId);
