@@ -143,12 +143,6 @@ class AslExecutorHttpInvokeTest {
                     .subscribe().with(it -> {
                     });
             });
-        router.get("/form")
-            .handler(ctx -> {
-                ctx.response()
-                    .putHeader("Content-Type", "application/x-www-form-urlencoded")
-                    .endAndForget("no_support");
-            });
         router.errorHandler(500, ctx -> ctx.response()
             .setStatusCode(500)
             .putHeader("Content-Type", "application/json")
@@ -403,8 +397,75 @@ class AslExecutorHttpInvokeTest {
     }
 
     @Test
-    void formTransformationIsUnsupported() {
-        Execution execution = run("""
+    void urlEncodedBodyDefaultsToIndicesArrayFormat() {
+        Execution execution = runUrlEncodedPost("""
+                {"customerId": "cust-123", "tags": ["blue", "green"], "active": true, "meta": {"a": 1}}""",
+                null);
+
+        assertEquals("SUCCEEDED", execution.getStatus());
+        RecordedRequest request = onlyRequest();
+        assertEquals("POST", request.method());
+        assertThat(request.firstHeader("Content-Type"), startsWith("application/x-www-form-urlencoded"));
+        assertEquals("customerId=cust-123&tags%5B0%5D=blue&tags%5B1%5D=green&active=true&meta=%7B%22a%22%3A1%7D",
+                request.body());
+    }
+
+    @Test
+    void urlEncodedBodySupportsRepeatArrayFormat() {
+        Execution execution = runUrlEncodedPost("""
+                {"tags": ["blue", "green"]}""", "REPEAT");
+
+        assertEquals("SUCCEEDED", execution.getStatus());
+        assertEquals("tags=blue&tags=green", onlyRequest().body());
+    }
+
+    @Test
+    void urlEncodedBodySupportsCommasArrayFormat() {
+        Execution execution = runUrlEncodedPost("""
+                {"tags": ["blue", "green"]}""", "COMMAS");
+
+        assertEquals("SUCCEEDED", execution.getStatus());
+        assertEquals("tags=blue%2Cgreen", onlyRequest().body());
+    }
+
+    @Test
+    void urlEncodedBodySupportsBracketsArrayFormat() {
+        Execution execution = runUrlEncodedPost("""
+                {"tags": ["blue", "green"]}""", "BRACKETS");
+
+        assertEquals("SUCCEEDED", execution.getStatus());
+        assertEquals("tags%5B%5D=blue&tags%5B%5D=green", onlyRequest().body());
+    }
+
+    @Test
+    void urlEncodedBodyMustBeJsonObject() {
+        Execution execution = runUrlEncodedPost("\"plain-text\"", null);
+
+        assertEquals("FAILED", execution.getStatus());
+        assertEquals("States.TaskFailed", execution.getError());
+        assertThat(execution.getCause(), startsWith("The RequestBody field must be a JSON object"));
+        assertEquals(0, receivedRequests.size());
+    }
+
+    @Test
+    void urlEncodedBodyRejectsUnknownArrayFormat() {
+        Execution execution = runUrlEncodedPost("""
+                {"tags": ["blue", "green"]}""", "PIPES");
+
+        assertEquals("FAILED", execution.getStatus());
+        assertEquals("States.TaskFailed", execution.getError());
+        assertEquals("Unsupported request encoding array format: PIPES", execution.getCause());
+        assertEquals(0, receivedRequests.size());
+    }
+
+    private Execution runUrlEncodedPost(String requestBody, String arrayFormat) {
+        String transform = arrayFormat == null
+                ? """
+                  {"RequestBodyEncoding": "URL_ENCODED"}"""
+                : """
+                  {"RequestBodyEncoding": "URL_ENCODED", "RequestEncodingOptions": {"ArrayFormat": "%s"}}"""
+                        .formatted(arrayFormat);
+        return run("""
                 {
                   "StartAt": "CallHttp",
                   "States": {
@@ -412,34 +473,19 @@ class AslExecutorHttpInvokeTest {
                       "Type": "Task",
                       "Resource": "arn:aws:states:::http:invoke",
                       "Parameters": {
-                        "ApiEndpoint.$": "$.endpoint",
-                        "Method.$": "$.method",
-                        "TimeoutSeconds": 1,
-                        "Authentication": {
+                        "ApiEndpoint": "%s/text",
+                        "Method": "POST",
+                        "InvocationConfig": {
                           "ConnectionArn": "%s"
                         },
-                        "Transform": {
-                          "RequestBodyEncoding": "URL_ENCODED",
-                          "RequestEncodingOptions": {
-                            "ArrayFormat": "COMMAS"
-                          }
-                        }
+                        "RequestBody": %s,
+                        "Transform": %s
                       },
                       "End": true
                     }
                   }
                 }
-                """.formatted(CONNECTION_ARN), """
-                {
-                  "endpoint": "%s/form",
-                  "method": "GET",
-                  "customerId": "cust-123"
-                }
-                """.formatted(baseUrl));
-
-        assertEquals("FAILED", execution.getStatus());
-        assertEquals("States.TaskFailed", execution.getError());
-        assertThat(execution.getCause(), startsWith("URL-encoded request bodies are not supported yet"));
+                """.formatted(baseUrl, CONNECTION_ARN, requestBody, transform), "{}");
     }
 
     private Execution run(String definition, String input) {

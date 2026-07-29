@@ -78,6 +78,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 @ApplicationScoped
 public class AslExecutor {
@@ -101,6 +102,8 @@ public class AslExecutor {
     private static final String QUERY_LANGUAGE_JSONATA = "JSONata";
     private static final Set<String> HTTP_ALLOWED_METHODS = Set.of(
             "GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD");
+    private static final Set<String> HTTP_FORM_ARRAY_FORMATS = Set.of(
+            "INDICES", "REPEAT", "COMMAS", "BRACKETS");
     private static final Set<String> HTTP_FORBIDDEN_HEADERS = Set.of(
             "a-im",
             "accept-charset",
@@ -2034,7 +2037,8 @@ public class AslExecutor {
         var headers = input.path("Headers");
         var queryParameters = input.path("QueryParameters");
         var requestBody = input.path("RequestBody");
-        var requestBodyEncoding = input.path("Transform").path("RequestBodyEncoding").asText("NONE");
+        var transform = input.path("Transform");
+        var requestBodyEncoding = transform.path("RequestBodyEncoding").asText("NONE");
 
         if (rawUri == null || rawUri.isBlank()) {
             throw new FailStateException("States.Runtime", "ApiEndpoint is required for HTTP task");
@@ -2051,7 +2055,7 @@ public class AslExecutor {
         validateConnectionArn(input);
         validateHttpHeaders(headers);
 
-        var requestPayload = requestPayload(requestBody, requestBodyEncoding);
+        var requestPayload = requestPayload(requestBody, requestBodyEncoding, transform);
         var requestHeaders = requestHeaders(headers, requestPayload.contentType());
         var requestQueryParameters = queryParameters(queryParameters);
 
@@ -2176,10 +2180,12 @@ public class AslExecutor {
         }
     }
 
-    private HttpRequestPayload requestPayload(JsonNode requestBody, String requestBodyEncoding) {
+    private HttpRequestPayload requestPayload(JsonNode requestBody, String requestBodyEncoding, JsonNode transform) {
         if ("URL_ENCODED".equalsIgnoreCase(requestBodyEncoding)) {
-            // TODO: Implement Transform.RequestBodyEncoding URL_ENCODED with AWS-compatible array formats.
-            throw new FailStateException("States.TaskFailed", "URL-encoded request bodies are not supported yet");
+            var arrayFormat = transform.path("RequestEncodingOptions").path("ArrayFormat").asText("INDICES");
+            return new HttpRequestPayload(null,
+                urlEncodedForm(requestBody, arrayFormat),
+                "application/x-www-form-urlencoded");
         } else if ("NONE".equalsIgnoreCase(requestBodyEncoding)) {
             try {
                 if (requestBody.isMissingNode() || requestBody.isNull()) {
@@ -2201,6 +2207,64 @@ public class AslExecutor {
     }
 
     private record HttpRequestPayload(Buffer body, MultiMap form, String contentType) {
+    }
+
+    /**
+     * Builds the form body for {@code Transform.RequestBodyEncoding: URL_ENCODED}. Arrays are
+     * expanded per {@code Transform.RequestEncodingOptions.ArrayFormat} the same way AWS does:
+     * {@code INDICES} (default, {@code key[0]=a&key[1]=b}), {@code REPEAT} ({@code key=a&key=b}),
+     * {@code COMMAS} ({@code key=a,b}) and {@code BRACKETS} ({@code key[]=a&key[]=b}). Values are
+     * URL-encoded on the wire by the web client's form encoder.
+     */
+    private MultiMap urlEncodedForm(JsonNode requestBody, String arrayFormat) {
+        MultiMap form = MultiMap.caseInsensitiveMultiMap();
+        if (requestBody.isMissingNode() || requestBody.isNull()) {
+            return form;
+        }
+        if (!requestBody.isObject()) {
+            throw new FailStateException("States.TaskFailed",
+                "The RequestBody field must be a JSON object when Transform.RequestBodyEncoding is 'URL_ENCODED'");
+        }
+
+        String normalizedArrayFormat = arrayFormat.toUpperCase(Locale.ROOT);
+        if (!HTTP_FORM_ARRAY_FORMATS.contains(normalizedArrayFormat)) {
+            throw new FailStateException("States.TaskFailed",
+                "Unsupported request encoding array format: " + arrayFormat);
+        }
+
+        requestBody.properties().forEach(entry ->
+            addFormValues(form, entry.getKey(), entry.getValue(), normalizedArrayFormat));
+        return form;
+    }
+
+    private void addFormValues(MultiMap form, String name, JsonNode value, String arrayFormat) {
+        if (!value.isArray()) {
+            if (!value.isNull()) {
+                form.add(name, formValue(value));
+            }
+            return;
+        }
+        switch (arrayFormat) {
+            case "INDICES" -> {
+                for (int i = 0; i < value.size(); i++) {
+                    form.add(name + "[" + i + "]", formValue(value.get(i)));
+                }
+            }
+            case "REPEAT" -> value.forEach(element -> form.add(name, formValue(element)));
+            case "COMMAS" -> form.add(name, StreamSupport.stream(value.spliterator(), false)
+                .map(this::formValue)
+                .collect(Collectors.joining(",")));
+            case "BRACKETS" -> value.forEach(element -> form.add(name + "[]", formValue(element)));
+            default -> throw new FailStateException("States.TaskFailed",
+                "Unsupported request encoding array format: " + arrayFormat);
+        }
+    }
+
+    private String formValue(JsonNode value) {
+        if (value.isNull() || value.isMissingNode()) {
+            return "";
+        }
+        return value.isContainerNode() ? value.toString() : value.asText();
     }
 
     private record HttpTaskResponse(
