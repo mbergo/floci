@@ -50,12 +50,19 @@ public class EksService implements TagHandler {
     private final StorageBackend<String, FargateProfile> fargateProfileStorage;
     private final EmulatorConfig config;
     private final RegionResolver regionResolver;
-    private final EksClusterManager clusterManager;
+    private final EksClusterProvider clusterManager;
     private final ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor();
 
     @Inject
     public EksService(StorageFactory storageFactory, EmulatorConfig config,
-            RegionResolver regionResolver, EksClusterManager clusterManager) {
+            RegionResolver regionResolver, EksClusterManager k3sProvider,
+            AksClusterProvider aksProvider) {
+        this(storageFactory, config, regionResolver,
+                selectProvider(config, k3sProvider, aksProvider));
+    }
+
+    EksService(StorageFactory storageFactory, EmulatorConfig config,
+            RegionResolver regionResolver, EksClusterProvider clusterManager) {
         this.storage = storageFactory.create("eks", "eks-clusters.json",
                 new TypeReference<Map<String, Cluster>>() {
                 });
@@ -68,6 +75,21 @@ public class EksService implements TagHandler {
         this.config = config;
         this.regionResolver = regionResolver;
         this.clusterManager = clusterManager;
+    }
+
+    /**
+     * Resolves the backing provider from {@code floci.services.eks.provider}:
+     * {@code k3s} (default, local Docker) or {@code aks} (real Azure AKS via the az CLI).
+     */
+    static EksClusterProvider selectProvider(EmulatorConfig config,
+            EksClusterProvider k3sProvider, EksClusterProvider aksProvider) {
+        String provider = config.services().eks().provider();
+        return switch (provider.toLowerCase(java.util.Locale.ROOT)) {
+            case "k3s" -> k3sProvider;
+            case "aks" -> aksProvider;
+            default -> throw new IllegalArgumentException(
+                    "Unsupported floci.services.eks.provider: " + provider + " (expected k3s or aks)");
+        };
     }
 
     @PostConstruct
@@ -122,7 +144,7 @@ public class EksService implements TagHandler {
             try {
                 clusterManager.startCluster(cluster);
             } catch (Exception e) {
-                LOG.errorv("Failed to start k3s container for cluster {0}: {1}", name, e.getMessage());
+                LOG.errorv("Failed to provision backing cluster for {0}: {1}", name, e.getMessage());
                 cluster.setStatus(ClusterStatus.FAILED);
             }
         }

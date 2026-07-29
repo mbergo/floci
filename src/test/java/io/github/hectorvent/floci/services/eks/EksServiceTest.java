@@ -133,6 +133,35 @@ class EksServiceTest {
     }
 
     @Test
+    void selectProviderResolvesConfiguredBackingProvider() {
+        EksClusterProvider k3s = proxy(EksClusterProvider.class, (p, m, a) -> null);
+        EksClusterProvider aks = proxy(EksClusterProvider.class, (p, m, a) -> null);
+
+        assertSame(k3s, EksService.selectProvider(configWithProvider("k3s"), k3s, aks));
+        assertSame(k3s, EksService.selectProvider(configWithProvider("K3S"), k3s, aks));
+        assertSame(aks, EksService.selectProvider(configWithProvider("aks"), k3s, aks));
+        assertThrows(IllegalArgumentException.class,
+                () -> EksService.selectProvider(configWithProvider("gke"), k3s, aks));
+    }
+
+    private EmulatorConfig configWithProvider(String provider) {
+        EmulatorConfig.EksServiceConfig eksConfig = proxy(EmulatorConfig.EksServiceConfig.class,
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "provider" -> provider;
+                    default -> defaultValue(method);
+                });
+        EmulatorConfig.ServicesConfig servicesConfig = proxy(EmulatorConfig.ServicesConfig.class,
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "eks" -> eksConfig;
+                    default -> defaultValue(method);
+                });
+        return proxy(EmulatorConfig.class, (proxy, method, args) -> switch (method.getName()) {
+            case "services" -> servicesConfig;
+            default -> defaultValue(method);
+        });
+    }
+
+    @Test
     void createCluster() {
         CreateClusterRequest req = new CreateClusterRequest();
         req.setName("test-cluster");

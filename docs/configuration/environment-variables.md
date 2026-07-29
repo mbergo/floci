@@ -378,12 +378,28 @@ These services spawn Docker containers. They require access to the Docker socket
 |---|---|---|
 | `FLOCI_SERVICES_EKS_ENABLED` | `true` | Enable the EKS service |
 | `FLOCI_SERVICES_EKS_MOCK` | `false` | When `true`, clusters are created instantly without a real container |
-| `FLOCI_SERVICES_EKS_PROVIDER` | `k3s` | Kubernetes provider (`k3s`) |
+| `FLOCI_SERVICES_EKS_PROVIDER` | `k3s` | Backing provider: `k3s` (local Docker) or `aks` (real Azure AKS via the az CLI) |
 | `FLOCI_SERVICES_EKS_DEFAULT_IMAGE` | `rancher/k3s:latest` | Docker image for EKS clusters |
 | `FLOCI_SERVICES_EKS_API_SERVER_BASE_PORT` | `6500` | First port in the Kubernetes API server range |
 | `FLOCI_SERVICES_EKS_API_SERVER_MAX_PORT` | `6599` | Last port in the Kubernetes API server range |
 | `FLOCI_SERVICES_EKS_KEEP_RUNNING_ON_SHUTDOWN` | `false` | Keep EKS containers running when Floci stops |
 | `FLOCI_SERVICES_EKS_DOCKER_NETWORK` | _(none)_ | Docker network for EKS containers |
+| `FLOCI_SERVICES_EKS_AKS_NODE_COUNT` | `1` | AKS default node pool size (`provider: aks`) |
+| `FLOCI_SERVICES_EKS_AKS_NODE_VM_SIZE` | `Standard_B2s` | AKS node VM size (`provider: aks`) |
+| `FLOCI_SERVICES_EKS_AKS_KUBERNETES_VERSION` | _(none)_ | Kubernetes version for `az aks create`; AKS default when unset |
+
+### Azure (shared provider settings)
+
+Used by Azure-backed providers such as `FLOCI_SERVICES_EKS_PROVIDER=aks`. Provisioning
+shells out to the `az` CLI and reuses your existing `az login` session.
+
+| Variable | Default | Description |
+|---|---|---|
+| `FLOCI_AZURE_CLI_PATH` | `az` | Azure CLI binary path |
+| `FLOCI_AZURE_SUBSCRIPTION` | _(none)_ | Azure subscription ID or name; az CLI default when unset |
+| `FLOCI_AZURE_RESOURCE_GROUP` | `floci` | Resource group for Floci-provisioned Azure resources |
+| `FLOCI_AZURE_LOCATION` | `eastus` | Azure location for the resource group |
+| `FLOCI_AZURE_AUTO_CREATE_RESOURCE_GROUP` | `true` | Create the resource group on first use |
 
 ### ECS (Elastic Container Service)
 

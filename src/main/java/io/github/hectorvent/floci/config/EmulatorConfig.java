@@ -73,7 +73,37 @@ public interface EmulatorConfig {
 
     TlsConfig tls();
 
+    AzureConfig azure();
+
     ProtocolsConfig protocols();
+
+    /**
+     * Shared settings for Azure-backed service providers (e.g.
+     * {@code floci.services.eks.provider=aks}). Floci keeps serving the AWS wire
+     * protocol; these settings only control where the backing infrastructure is
+     * provisioned. All provisioning goes through the {@code az} CLI, reusing the
+     * developer's existing {@code az login} session.
+     */
+    interface AzureConfig {
+        /** Path to the Azure CLI binary. */
+        @WithDefault("az")
+        String cliPath();
+
+        /** Azure subscription ID or name. Empty = the az CLI's default subscription. */
+        Optional<String> subscription();
+
+        /** Resource group that holds all Floci-provisioned Azure resources. */
+        @WithDefault("floci")
+        String resourceGroup();
+
+        /** Azure location used when Floci creates the resource group or resources. */
+        @WithDefault("eastus")
+        String location();
+
+        /** When true, Floci creates the resource group on first use if it does not exist. */
+        @WithDefault("true")
+        boolean autoCreateResourceGroup();
+    }
 
     interface ProtocolsConfig {
         /**
@@ -1467,6 +1497,11 @@ public interface EmulatorConfig {
         @WithDefault("false")
         boolean mock();
 
+        /**
+         * Backing infrastructure for real-mode clusters: {@code k3s} (default, local
+         * Docker containers) or {@code aks} (real Azure AKS clusters via the az CLI,
+         * see {@code floci.azure} and {@code floci.services.eks.aks}).
+         */
         @WithDefault("k3s")
         String provider();
 
@@ -1517,6 +1552,26 @@ public interface EmulatorConfig {
          */
         @WithDefault("true")
         boolean ecrRegistryMirror();
+
+        AksConfig aks();
+    }
+
+    /** AKS-specific settings, used when {@code floci.services.eks.provider=aks}. */
+    interface AksConfig {
+        /** Node count for the AKS default node pool. */
+        @WithDefault("1")
+        int nodeCount();
+
+        /** VM size for the AKS default node pool. */
+        @WithDefault("Standard_B2s")
+        String nodeVmSize();
+
+        /**
+         * Kubernetes version passed to {@code az aks create}. Empty = AKS default.
+         * The EKS request's {@code version} is intentionally not forwarded, since
+         * EKS and AKS supported-version windows differ.
+         */
+        Optional<String> kubernetesVersion();
     }
 
     interface InitHooksConfig {

@@ -66,6 +66,14 @@ floci:
                    # Needed for multi-container Docker setups. Example: FLOCI_HOSTNAME=floci
   default-region: us-east-1
   default-account-id: "000000000000"
+  # Shared settings for Azure-backed providers (e.g. floci.services.eks.provider=aks).
+  # Provisioning shells out to the az CLI and reuses your existing `az login` session.
+  azure:
+    cli-path: az
+    # subscription: ""            # az CLI default subscription when unset
+    resource-group: floci
+    location: eastus
+    auto-create-resource-group: true
   storage:
     # Supported modes: memory, persistent, hybrid, wal
     mode: memory
@@ -367,7 +375,7 @@ floci:
     eks:
       enabled: true
       mock: false
-      provider: k3s
+      provider: k3s                # k3s = local Docker containers; aks = real Azure AKS via the az CLI
       default-image: "rancher/k3s:latest"
       api-server-base-port: 6500
       api-server-max-port: 6599
@@ -376,6 +384,10 @@ floci:
       endpoint-mode: host          # host = https://localhost:<hostPort> (host-reachable); network = container DNS name
       iam-auth-webhook: true       # wire a token-auth webhook into k3s so `aws eks get-token` works
       ecr-registry-mirror: true    # inject a registries.yaml so pods can pull images pushed to Floci ECR
+      aks:                         # used when provider: aks (see also floci.azure)
+        node-count: 1
+        node-vm-size: Standard_B2s
+        # kubernetes-version: ""   # AKS default version when unset
     elbv2:
       enabled: true
       mock: false

@@ -73,12 +73,58 @@ services:
 !!! note "No port mapping needed for k3s ports"
     k3s containers bind their API server port (6500–6599) directly on the host via Docker — no `ports:` entry is required in `docker-compose.yml`. See [Ports Reference](../configuration/ports.md#ports-65006599-eks-real-mode) for the full explanation.
 
+### Azure AKS provider (`provider: aks`)
+
+Instead of local k3s containers, real mode can back each EKS cluster with a **real Azure
+AKS cluster**, provisioned through the `az` CLI. The AWS wire protocol is unchanged —
+`create-cluster` starts an async `az aks create --no-wait`, the cluster stays `CREATING`
+while Floci polls the AKS `provisioningState`, and once it reaches `Succeeded`,
+`describe-cluster` returns the real AKS API server endpoint and certificate-authority
+data.
+
+```yaml
+floci:
+  azure:
+    resource-group: floci        # created automatically on first use
+    location: eastus
+    # subscription: my-sub       # az CLI default subscription when unset
+  services:
+    eks:
+      provider: aks
+      aks:
+        node-count: 1
+        node-vm-size: Standard_B2s
+        # kubernetes-version: "1.30"   # AKS default version when unset
+```
+
+Requirements and behavior:
+
+- The `az` CLI must be installed and logged in (`az login`); Floci reuses that session
+  and never handles Azure credentials itself. The binary path is configurable via
+  `FLOCI_AZURE_CLI_PATH`.
+- AKS cluster names are derived deterministically from the EKS cluster name
+  (`floci-<name>`, hash-suffixed when the name needs sanitizing or truncating to Azure's
+  63-char limit), and every resource is tagged `floci=true`.
+- The admin kubeconfig is written to `<data-path>/aks/<cluster>/kubeconfig` for direct
+  `kubectl --kubeconfig` use.
+- `delete-cluster` (and shutdown, unless `keep-running-on-shutdown: true`) issues
+  `az aks delete --no-wait`.
+- The EKS request's `version` is **not** forwarded to AKS, since EKS and AKS
+  supported-version windows differ; set `aks.kubernetes-version` explicitly if needed.
+
+!!! warning "`aws eks get-token` is not accepted by AKS"
+    AKS offers no authentication-token-webhook hook point, so the bearer tokens minted by
+    `aws eks get-token` (and wired in by `aws eks update-kubeconfig`) are rejected by the
+    AKS API server. Use the exported admin kubeconfig instead. This is the one deliberate
+    compatibility gap of the AKS provider; k3s mode keeps the native token flow.
+
 ## Configuration
 
 | Variable | Default | Description |
 |---|---|---|
 | `FLOCI_SERVICES_EKS_ENABLED` | `true` | Enable the EKS service |
 | `FLOCI_SERVICES_EKS_MOCK` | `false` | Metadata-only mode (no Docker) |
+| `FLOCI_SERVICES_EKS_PROVIDER` | `k3s` | Backing provider: `k3s` (local Docker) or `aks` (real Azure AKS via the az CLI) |
 | `FLOCI_SERVICES_EKS_DEFAULT_IMAGE` | `rancher/k3s:latest` | k3s Docker image |
 | `FLOCI_SERVICES_EKS_API_SERVER_BASE_PORT` | `6500` | First port in the k3s API server range |
 | `FLOCI_SERVICES_EKS_API_SERVER_MAX_PORT` | `6599` | Last port in the k3s API server range |
@@ -88,6 +134,14 @@ services:
 | `FLOCI_SERVICES_EKS_ENDPOINT_MODE` | `host` | `describe-cluster` endpoint: `host` (`localhost:<hostPort>`) or `network` (container DNS) |
 | `FLOCI_SERVICES_EKS_IAM_AUTH_WEBHOOK` | `true` | Wire a token-auth webhook into k3s so `aws eks get-token` works |
 | `FLOCI_SERVICES_EKS_ECR_REGISTRY_MIRROR` | `true` | Inject a containerd `registries.yaml` so pods can pull images pushed to [Floci ECR](ecr.md) |
+| `FLOCI_SERVICES_EKS_AKS_NODE_COUNT` | `1` | AKS default node pool size (`provider: aks`) |
+| `FLOCI_SERVICES_EKS_AKS_NODE_VM_SIZE` | `Standard_B2s` | AKS node VM size (`provider: aks`) |
+| `FLOCI_SERVICES_EKS_AKS_KUBERNETES_VERSION` | *(unset)* | Kubernetes version for `az aks create`; AKS default when unset |
+| `FLOCI_AZURE_CLI_PATH` | `az` | Azure CLI binary path |
+| `FLOCI_AZURE_SUBSCRIPTION` | *(unset)* | Azure subscription; az CLI default when unset |
+| `FLOCI_AZURE_RESOURCE_GROUP` | `floci` | Resource group for Floci-provisioned Azure resources |
+| `FLOCI_AZURE_LOCATION` | `eastus` | Azure location for the resource group |
+| `FLOCI_AZURE_AUTO_CREATE_RESOURCE_GROUP` | `true` | Create the resource group on first use |
 
 ### Pulling images from Floci ECR
 

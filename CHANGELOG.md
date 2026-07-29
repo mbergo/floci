@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **eks:** new `aks` provider (`floci.services.eks.provider=aks`) backs real-mode clusters with real Azure AKS clusters provisioned through the `az` CLI, keeping the AWS wire protocol unchanged. Adds the shared `floci.azure` config block (cli-path, subscription, resource-group, location, auto-create-resource-group) and `floci.services.eks.aks` (node-count, node-vm-size, kubernetes-version).
 - **cloudtrail:** new in-process service. Supports `CreateTrail`, `DescribeTrails`, `DeleteTrail`, `UpdateTrail`, `PutEventSelectors`, `GetEventSelectors`, `StartLogging`, `StopLogging`, `GetTrailStatus`, `LookupEvents`. S3 data events on hooked ops (`PutObject`, `GetObject`, `HeadObject`, `DeleteObject`, `ListObjects`, `GetObjectAcl`) are buffered per-trail and flushed as gzipped JSON log files into the destination bucket at AWS-shaped key paths (`AWSLogs/${account}/CloudTrail/${region}/yyyy/MM/dd/${file}.json.gz`) at a configurable cadence. IAM-enforcement denials emit matching `AccessDenied` records.
 - **iam:** seeded `AWSCloudTrail_FullAccess` and `AWSCloudTrail_ReadOnlyAccess` AWS managed policies.
 - **iam:** distinguish `s3:GetObjectAcl` / `s3:PutObjectAcl` / `s3:Get|Put|DeleteObjectTagging` from base S3 ops via `?acl` / `?tagging` query parameters when resolving an action for IAM enforcement.

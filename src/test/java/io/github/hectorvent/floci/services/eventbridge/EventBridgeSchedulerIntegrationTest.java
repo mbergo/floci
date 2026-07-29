@@ -324,6 +324,8 @@ class EventBridgeSchedulerIntegrationTest {
             @Override
             public ProtocolsConfig protocols() { return () -> false; }
             @Override
+            public AzureConfig azure() { return null; }
+            @Override
             public TlsConfig tls() {
                 return new TlsConfig() {
                     @Override public boolean enabled() { return false; }

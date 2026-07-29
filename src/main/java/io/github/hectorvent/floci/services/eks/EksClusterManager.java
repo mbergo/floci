@@ -36,11 +36,12 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Manages the Docker lifecycle of k3s containers for real-mode EKS clusters.
+ * Manages the Docker lifecycle of k3s containers for real-mode EKS clusters
+ * ({@code floci.services.eks.provider=k3s}, the default).
  * Not used when {@code floci.services.eks.mock=true}.
  */
 @ApplicationScoped
-public class EksClusterManager {
+public class EksClusterManager implements EksClusterProvider {
 
     private static final Logger LOG = Logger.getLogger(EksClusterManager.class);
     private static final int K3S_API_SERVER_PORT = 6443;
